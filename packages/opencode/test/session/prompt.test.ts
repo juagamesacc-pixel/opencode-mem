@@ -580,6 +580,41 @@ withMcpInstructions.instance(
   15_000,
 )
 
+it.instance(
+  "loop injects post-compaction memory lookup only on resumption turn after compaction",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const compaction = yield* SessionCompaction.Service
+      const chat = yield* sessions.create({ title: "Pinned" })
+      const INJECTION = "Context was just compacted"
+
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "hello" }],
+      })
+      yield* llm.text("world")
+      yield* prompt.loop({ sessionID: chat.id })
+      const plainBodies = (yield* llm.hits).map((hit) => JSON.stringify(hit.body))
+      expect(plainBodies.length > 0).toBe(true)
+      expect(plainBodies.some((body) => body.includes(INJECTION))).toBe(false)
+      yield* llm.reset
+
+      yield* compaction.create({ sessionID: chat.id, agent: "build", model: ref, auto: true })
+      yield* llm.text("compacted summary")
+      yield* llm.text("after compaction")
+      yield* prompt.loop({ sessionID: chat.id })
+      const bodies = (yield* llm.hits).map((hit) => JSON.stringify(hit.body))
+      expect(bodies.length > 0).toBe(true)
+      expect(bodies.some((body) => body.includes(INJECTION))).toBe(true)
+    }),
+  15_000,
+)
+
 it.instance("legacy prompt emits message events without session.next events", () =>
   Effect.gen(function* () {
     const events = yield* EventV2Bridge.Service

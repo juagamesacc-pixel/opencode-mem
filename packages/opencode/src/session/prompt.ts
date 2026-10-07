@@ -81,6 +81,8 @@ IMPORTANT:
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
 
+const POST_COMPACTION_MEMORY_LOOKUP = "Context was just compacted. If memory MCP tools are available, look up the goal, state, and pending memory files to restore mission and progress before continuing; if no such tools are available, ignore this line and continue."
+
 function mcpResourceBase64Size(value: string) {
   const trimmed = value.replace(/\s/g, "")
   const padding = trimmed.endsWith("==") ? 2 : trimmed.endsWith("=") ? 1 : 0
@@ -1085,6 +1087,7 @@ const layer = Layer.effect(
         let step = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
 
+        let justCompacted = false
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
           yield* Effect.logInfo("loop", { "session.id": sessionID, step })
@@ -1155,6 +1158,7 @@ const layer = Layer.effect(
               overflow: task.overflow,
             })
             if (result === "stop") break
+            justCompacted = result === "continue"
             continue
           }
 
@@ -1266,6 +1270,7 @@ const layer = Layer.effect(
               ...instructions,
               ...(mcpInstructions ? [mcpInstructions] : []),
               ...(skills ? [skills] : []),
+              ...(justCompacted ? [POST_COMPACTION_MEMORY_LOOKUP] : []),
             ]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
@@ -1284,6 +1289,7 @@ const layer = Layer.effect(
               model,
               toolChoice: format.type === "json_schema" ? "required" : undefined,
             })
+            justCompacted = false
 
             if (structured !== undefined) {
               handle.message.structured = structured
