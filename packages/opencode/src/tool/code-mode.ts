@@ -148,7 +148,11 @@ const invokeChildTool = Effect.fn("CodeMode.invokeChildTool")(function* (input: 
     // Deliberately mirrors McpCatalog.convertTool's transport call so the MCP service stays free of tool-loop concerns.
     return yield* Effect.promise(async () => {
       const raw = await input.entry.tool.client.callTool(
-        { name: input.entry.tool.def.name, arguments: input.args },
+        {
+          name: input.entry.tool.def.name,
+          arguments: input.args,
+          _meta: { "opencode/session-id": input.ctx.sessionID },
+        },
         CallToolResultSchema,
         {
           resetTimeoutOnProgress: true,

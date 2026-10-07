@@ -48,6 +48,43 @@ describe("McpCatalog.convertTool", () => {
       content: [{ type: "text", text: JSON.stringify(structuredContent) }],
     })
   })
+
+  test("forwards session id via _meta when meta is provided", async () => {
+    let received: unknown
+    const client = {
+      callTool: async (params: unknown) => {
+        received = params
+        return { content: [{ type: "text" as const, text: "ok" }] }
+      },
+    } as unknown as Client
+    const converted = McpCatalog.convertTool(mcpTool(), client, undefined, {
+      "opencode/session-id": "ses_123",
+    })
+
+    await converted.execute?.({}, options)
+
+    expect(received).toMatchObject({
+      name: "screenshot",
+      arguments: {},
+      _meta: { "opencode/session-id": "ses_123" },
+    })
+  })
+
+  test("omits _meta when meta is not provided", async () => {
+    let received: unknown
+    const client = {
+      callTool: async (params: unknown) => {
+        received = params
+        return { content: [{ type: "text" as const, text: "ok" }] }
+      },
+    } as unknown as Client
+    const converted = McpCatalog.convertTool(mcpTool(), client)
+
+    await converted.execute?.({}, options)
+
+    expect(received).toEqual({ name: "screenshot", arguments: {} })
+    expect(received).not.toHaveProperty("_meta")
+  })
 })
 
 test("preserves output schema validation across paginated tool discovery", async () => {
