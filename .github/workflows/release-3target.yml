@@ -1,0 +1,61 @@
+name: release-3target
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without leading v (e.g. 1.18.30)"
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Resolve version
+        id: resolve
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            echo "No version resolved (set workflow input or push a v* tag)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION"
+
+      - name: Create draft release
+        run: |
+          gh release create "v${{ steps.resolve.outputs.version }}" --draft --title "v${{ steps.resolve.outputs.version }}" --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build 3 targets
+        run: |
+          bun ./packages/opencode/script/build.ts --targets=linux-x64,linux-arm64,darwin-arm64
+        env:
+          OPENCODE_VERSION: ${{ steps.resolve.outputs.version }}
+          OPENCODE_RELEASE: 1
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Undraft release
+        run: |
+          gh release edit "v${{ steps.resolve.outputs.version }}" --draft=false --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

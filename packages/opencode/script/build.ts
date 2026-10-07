@@ -23,6 +23,24 @@ const sourcemapsFlag = process.argv.includes("--sourcemaps")
 const plugin = createSolidTransformPlugin()
 const skipEmbedWebUi = process.argv.includes("--skip-embed-web-ui")
 
+// Additive `--targets=a,b,c` filter intersected with `allTargets` below.
+// Accepts short names (`linux-x64`) or full names (`opencode-linux-x64`).
+// When absent, existing `--single`/all behavior is unchanged.
+const targetsArg = (() => {
+  const eq = process.argv.find((a) => a.startsWith("--targets="))
+  if (eq) return eq.slice("--targets=".length)
+  const idx = process.argv.indexOf("--targets")
+  if (idx !== -1) return process.argv[idx + 1] ?? ""
+  return undefined
+})()
+const requestedTargets =
+  targetsArg === undefined
+    ? undefined
+    : targetsArg
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+
 const createEmbeddedWebUIBundle = async () => {
   console.log(`Building Web UI to embed in the binary`)
   const appDir = path.join(import.meta.dirname, "../../app")
@@ -113,7 +131,20 @@ const allTargets: {
   },
 ]
 
-const targets = singleFlag
+const targets = requestedTargets
+  ? allTargets.filter((item) => {
+      const short = [
+        item.os === "win32" ? "windows" : item.os,
+        item.arch,
+        item.avx2 === false ? "baseline" : undefined,
+        item.abi === undefined ? undefined : item.abi,
+      ]
+        .filter(Boolean)
+        .join("-")
+      const full = `${pkg.name}-${short}`
+      return requestedTargets.includes(short) || requestedTargets.includes(full)
+    })
+  : singleFlag
   ? allTargets.filter((item) => {
       if (item.os !== process.platform || item.arch !== process.arch) {
         return false
