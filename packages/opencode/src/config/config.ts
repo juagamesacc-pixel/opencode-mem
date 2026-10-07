@@ -34,6 +34,7 @@ import { ConfigPaths } from "./paths"
 import { ConfigPlugin } from "./plugin"
 import { ConfigVariable } from "./variable"
 import { ConfigV2Compat } from "./v2-compat"
+import { bundledMcpDefaults, ensureBundledMcpInConfigFile } from "../mcp/bundled"
 import { Npm } from "@opencode-ai/core/npm"
 import { withTransientReadRetry } from "@/util/effect-http-client"
 
@@ -268,10 +269,20 @@ const layer = Layer.effect(
             .writeWithDirs(file, JSON.stringify({ $schema: "https://opencode.ai/config.json" }, null, 2))
             .pipe(Effect.catch(() => Effect.void))
         }
+        // File-visible registration of the bundled python MCP servers
+        // (memory, web): adds missing keys only, best-effort.
+        yield* Effect.promise(() => ensureBundledMcpInConfigFile(file)).pipe(Effect.ignore)
       }
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "config.json"), env))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.json"), env))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.jsonc"), env))
+
+      // In-code merge fallback for the bundled defaults, so memory/web stay
+      // configured even when the config file write above is skipped.
+      for (const [name, entry] of Object.entries(bundledMcpDefaults())) {
+        result.mcp ??= {}
+        if (result.mcp[name] === undefined) result.mcp[name] = entry
+      }
 
       const legacy = path.join(Global.Path.config, "config")
       if (existsSync(legacy)) {

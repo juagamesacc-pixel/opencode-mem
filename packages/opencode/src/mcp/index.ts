@@ -32,6 +32,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { McpCatalog } from "./catalog"
+import { ensureBundledMcp, ensurePythonAvailable } from "./bundled"
 import { McpEvent } from "@opencode-ai/schema/mcp-event"
 import { McpBrowser } from "./browser"
 
@@ -341,7 +342,15 @@ const layer = Layer.effect(
       key: string,
       mcp: ConfigMCPV1.Info & { type: "local" },
     ) {
+      // Materialize bundled servers and gate python MCPs on a python3
+      // interpreter BEFORE any fallible connect step. orDie (not orElse)
+      // escapes create()'s catch-all below — which maps ordinary failures to
+      // failed status — so a missing-python abort actually aborts startup.
+      yield* Effect.tryPromise(() => ensureBundledMcp()).pipe(Effect.orDie)
       const [cmd, ...args] = mcp.command
+      if (cmd === "python3" || cmd === "python" || args.some((arg) => arg.endsWith(".py"))) {
+        yield* Effect.tryPromise(() => ensurePythonAvailable()).pipe(Effect.orDie)
+      }
       const baseDir = yield* InstanceState.directory
       const cwd = mcp.cwd ? path.resolve(baseDir, mcp.cwd) : baseDir
       const transport = new StdioClientTransport({

@@ -65,7 +65,32 @@ const createEmbeddedWebUIBundle = async () => {
   ].join("\n")
 }
 
+const createEmbeddedMcpBundle = async () => {
+  console.log(`Building bundled MCP servers to embed in the binary`)
+  const bundledDir = path.join(dir, "src/mcp/bundled")
+  const candidates = ["memory_mcp.py", "web_mcp.py"]
+  const files: string[] = []
+  for (const file of candidates) {
+    if (await Bun.file(path.join(bundledDir, file)).exists()) files.push(file)
+  }
+  if (files.length === 0) return null
+  const imports = files.map((file, i) => {
+    const spec = path.relative(dir, path.join(bundledDir, file)).replaceAll("\\", "/")
+    return `import file_${i} from ${JSON.stringify(spec.startsWith(".") ? spec : `./${spec}`)} with { type: "file" };`
+  })
+  const entries = files.map((file, i) => `  ${JSON.stringify(file)}: file_${i},`)
+  return [
+    `// Bundled MCP servers (memory_mcp.py, web_mcp.py) as file_$i with type: "file"`,
+    ...imports,
+    `// Export with original mappings`,
+    `export default {`,
+    ...entries,
+    `}`,
+  ].join("\n")
+}
+
 const embeddedFileMap = skipEmbedWebUi ? null : await createEmbeddedWebUIBundle()
+const embeddedMcpMap = await createEmbeddedMcpBundle()
 const treeSitterWorker = await Bun.file(fileURLToPath(import.meta.resolve("@opentui/core/parser.worker"))).text()
 
 const allTargets: {
@@ -213,12 +238,14 @@ for (const item of targets) {
     files: {
       [treeSitterWorkerPath]: treeSitterWorker,
       ...(embeddedFileMap ? { "opencode-web-ui.gen.ts": embeddedFileMap } : {}),
+      ...(embeddedMcpMap ? { "opencode-mcp.gen.ts": embeddedMcpMap } : {}),
     },
     entrypoints: [
       "./src/index.ts",
       workerPath,
       treeSitterWorkerPath,
       ...(embeddedFileMap ? ["opencode-web-ui.gen.ts"] : []),
+      ...(embeddedMcpMap ? ["opencode-mcp.gen.ts"] : []),
     ],
     define: {
       FFF_LIBC: JSON.stringify(item.abi === "musl" ? "musl" : "gnu"),
